@@ -1,7 +1,6 @@
 #ifndef CB_H_
 #define CB_H_
 
-#include <cstdlib>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -10,20 +9,43 @@
 
 // PUBLIC
 typedef struct command_t command_t;
+typedef struct argument_t argument_t;
+typedef struct option_t option_t;
 
 struct command_t {
     char *arg;
     command_t *next;
 };
 
-command_t * command_init(const char *arg);
-void command_append(command_t *cmd, const char *arg);
-void command_append_n(command_t *cmd, const char *arg0, ...);
-void command_execute(command_t *cmd);
+static inline command_t * command_init(const char *arg);
+static inline void command_append(command_t *cmd, const char *arg);
+static inline void command_append_n(command_t *cmd, const char *arg0, ...);
+static inline void command_execute(command_t *cmd);
+
+struct option_t {
+    char * flag;
+    char ** values;
+    int option_count;
+    option_t * next;
+};
+
+struct argument_t {
+    char ** positional_arguments; // == argv
+    int positional_arguments_count;
+
+    option_t * options;
+};
+
+static argument_t _arguments;
+
+static inline void parse_arguments(int argc, char ** argv);
+static inline char * get_argument_at_index(int i);
+static inline char ** get_arguments_from_flag(char * flag);
+static inline char * get_argument_from_flag(char * flag);
 
 #ifdef CB_IMPLEMENTATION
 
-void _panic(const char * fmt, ...) {
+static inline void _panic(const char * fmt, ...) {
     va_list args;
     va_start(args, fmt);
     vfprintf(stderr, fmt, args);
@@ -31,7 +53,65 @@ void _panic(const char * fmt, ...) {
     exit(EXIT_FAILURE);
 }
 
-command_t * command_init(const char * arg) {
+static inline void * _safe_alloc(size_t size, const char * error_msg) {
+    void * a = malloc(size);
+    if(!a) {
+        _panic(error_msg);
+    }
+    return a;
+}
+
+static inline option_t * _get_option(char * flag) {
+    if(!_arguments.options) {
+        _arguments.options = (option_t *)_safe_alloc(sizeof(option_t), "_get_option: failed to allocate initial option");
+        option_t * o = _arguments.options;
+        o->flag = flag;
+        o->values = 0;
+        o->option_count = 0;
+        o->next = 0;
+        return o;
+    }
+
+    option_t * o = _arguments.options;
+    while(strcmp(o->flag, flag) != 0) {
+        if(o->next == 0) {
+            o->next = (option_t *)_safe_alloc(sizeof(option_t), "_get_option: failed to allocate option");
+            o->next->flag = flag;
+            o->next->next = 0;
+            o->next->option_count = 0;
+            o->next->values = 0;
+            o = o->next;
+            break;
+        }
+        o = o->next;
+    }
+
+    return o;
+}
+
+static inline void _add_value(option_t * o, char * value) {
+    char ** t = o->values;
+    o->values = (char **)_safe_alloc((o->option_count + 1) * sizeof(char *), "_add_value: failed to allocate");
+    for(int i = 0; i < o->option_count; i++) {
+        o->values[i] = t[i];
+    }
+    o->values[o->option_count] = value;
+    o->option_count++;
+}
+
+static inline void parse_arguments(int argc, char ** argv) {
+    _arguments.positional_arguments = argv;
+    _arguments.positional_arguments_count = argc;
+    for(int i = 0; i < argc; i++) {
+        if(argv[i][0] == '-') {
+            option_t * o = _get_option(argv[i]);
+            if(i + 1 == argc) return;
+            _add_value(o, argv[i+1]);
+        }
+    }
+}
+
+static inline command_t * command_init(const char * arg) {
     command_t * cmd = (command_t *)malloc(sizeof(command_t));
 
     {
@@ -52,7 +132,7 @@ command_t * command_init(const char * arg) {
     return cmd;
 }
 
-void command_append(command_t *cmd, const char * arg) {
+static inline void command_append(command_t *cmd, const char * arg) {
     while(cmd->next) {
         cmd = cmd->next;
     }
@@ -60,7 +140,7 @@ void command_append(command_t *cmd, const char * arg) {
     cmd->next = command_init(arg);
 }
 
-void command_append_n(command_t *cmd, const char * arg0, ...) {
+static inline void command_append_n(command_t *cmd, const char * arg0, ...) {
     va_list ap;
     const char * arg;
 
@@ -75,7 +155,7 @@ void command_append_n(command_t *cmd, const char * arg0, ...) {
     va_end(ap);
 }
 
-char ** _command_assemble(const command_t *cmd) {
+static inline char ** _command_assemble(const command_t *cmd) {
     int count = 0;
     command_t * t = (command_t *)cmd;
 
@@ -103,7 +183,7 @@ char ** _command_assemble(const command_t *cmd) {
 
         {
             if(!*argv_t) {
-                _panic("_command_assemble: strdup failed")
+                _panic("_command_assemble: strdup failed");
             }
         }
 
@@ -114,10 +194,12 @@ char ** _command_assemble(const command_t *cmd) {
     return argv;
 }
 
+
+
 // ---------- LINUX SPECIFIC ----------
 #ifdef __linux__
 
-void command_execute(command_t *cmd) {
+static inline void command_execute(command_t *cmd) {
     char ** assembled = _command_assemble(cmd);
     int result = execve(assembled[0], assembled, (char **)NULL);
 
