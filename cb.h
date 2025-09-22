@@ -44,7 +44,6 @@ static inline char * get_argument_from_flag(char * flag);
 static inline int has_flag(char * flag);
 static inline int has_argument_at_intex(char * arg, int i);
 
-#define CB_IMPLEMENTATION
 #ifdef CB_IMPLEMENTATION
 
 static inline void _panic(const char * fmt, ...) {
