@@ -5,7 +5,6 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
-#include <unistd.h>
 
 // PUBLIC
 typedef struct command_t command_t;
@@ -45,6 +44,7 @@ static inline char * get_argument_from_flag(char * flag);
 static inline int has_flag(char * flag);
 static inline int has_argument_at_intex(char * arg, int i);
 
+#define CB_IMPLEMENTATION
 #ifdef CB_IMPLEMENTATION
 
 static inline void _panic(const char * fmt, ...) {
@@ -237,15 +237,24 @@ static inline char ** _command_assemble(const command_t *cmd) {
 // ---------- LINUX SPECIFIC ----------
 #ifdef __linux__
 
+#include <unistd.h>
+#include <sys/wait.h>
+
 static inline void command_execute(command_t *cmd) {
     char ** assembled = _command_assemble(cmd);
-    int result = execve(assembled[0], assembled, (char **)NULL);
 
-    {
-        if(result == -1) {
-            _panic("command_execute: execve failed");
+    pid_t p = fork();
+
+    // Child
+    if(p == 0) {
+        int result = execve(assembled[0], assembled, (char **)NULL);
+        {
+            if(result == -1) { _panic("command_execute: execve failed"); }
         }
+    } else {
+        waitpid(p, NULL, 0);
     }
+
 }
 
 #endif
