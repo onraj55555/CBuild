@@ -42,6 +42,8 @@ static inline void parse_arguments(int argc, char ** argv);
 static inline char * get_argument_at_index(int i);
 static inline char ** get_arguments_from_flag(char * flag);
 static inline char * get_argument_from_flag(char * flag);
+static inline int has_flag(char * flag);
+static inline int has_argument_at_intex(char * arg, int i);
 
 #ifdef CB_IMPLEMENTATION
 
@@ -106,9 +108,45 @@ static inline void parse_arguments(int argc, char ** argv) {
         if(argv[i][0] == '-') {
             option_t * o = _get_option(argv[i]);
             if(i + 1 == argc) return;
+            if(argv[i+1][0] == '-') continue; // Solves problem of flags without value: -g -o a, this makes -g not contain -o as its value
             _add_value(o, argv[i+1]);
         }
     }
+}
+
+static inline char ** get_arguments_from_flag(char * flag) {
+    char ** arguments = NULL;
+    option_t * o = _arguments.options;
+    while(o != NULL) {
+        if(strcmp(o->flag, flag) == 0) {
+            arguments = o->values;
+            break;
+        }
+
+        o = o->next;
+    }
+
+    return arguments;
+}
+
+static inline char * get_argument_from_flag(char * flag) {
+    char ** arguments = get_arguments_from_flag(flag);
+    if(arguments == NULL) return NULL;
+    return arguments[0];
+}
+
+static inline int has_flag(char * flag) {
+    option_t * o = _arguments.options;
+    while(o != NULL) {
+        if(strcmp(o->flag, flag) == 0) return 1;
+        o = o->next;
+    }
+    return 0;
+}
+
+static inline int has_argument_at_intex(char * arg, int i) {
+    if(i >= _arguments.positional_arguments_count) return 0;
+    return strcmp(_arguments.positional_arguments[i], arg) == 0;
 }
 
 static inline command_t * command_init(const char * arg) {
