@@ -6,6 +6,12 @@
 #include <string.h>
 #include <stdarg.h>
 
+#ifdef DEBUG
+#define debug_print(fmt, ...) fprintf(stderr, "[DEBUG] " fmt "\n", ##__VA_ARGS__) // ## needed to remove the , if no arguments are supplied
+#else
+#define debug_print(fmt, ...)
+#endif
+
 // PUBLIC
 typedef struct command_t command_t;
 typedef struct argument_t argument_t;
@@ -149,6 +155,7 @@ static inline int has_argument_at_intex(char * arg, int i) {
 }
 
 static inline command_t * command_init(const char * arg) {
+    debug_print("command_init: arg = %s", arg);
     command_t * cmd = (command_t *)malloc(sizeof(command_t));
 
     {
@@ -185,6 +192,7 @@ static inline void command_append_n(command_t *cmd, const char * arg0, ...) {
     arg = arg0;
 
     while(arg) {
+        debug_print("command_append_n: arg=%s, strlen(arg)=%d, *arg=%d", arg, strlen(arg), *arg);
         command_append(cmd, arg);
         arg = va_arg(ap, const char *);
     }
@@ -239,6 +247,8 @@ static inline char ** _command_assemble(const command_t *cmd) {
 #include <unistd.h>
 #include <sys/wait.h>
 
+extern char ** environ;
+
 static inline void command_execute(command_t *cmd) {
     char ** assembled = _command_assemble(cmd);
 
@@ -246,11 +256,12 @@ static inline void command_execute(command_t *cmd) {
 
     // Child
     if(p == 0) {
-        int result = execve(assembled[0], assembled, (char **)NULL);
+        int result = execve(assembled[0], assembled, environ);
         {
             if(result == -1) { _panic("command_execute: execve failed"); }
         }
     } else {
+        printf("Parent\n");
         waitpid(p, NULL, 0);
     }
 
