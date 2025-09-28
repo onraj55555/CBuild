@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
+#include <stdint.h>
 
 #ifdef DEBUG
 #define debug_print(fmt, ...) fprintf(stderr, "[DEBUG] " fmt "\n", ##__VA_ARGS__) // ## needed to remove the , if no arguments are supplied
@@ -18,14 +19,40 @@ typedef struct argument_t argument_t;
 typedef struct option_t option_t;
 
 struct command_t {
-    char *arg;
-    command_t *next;
+    char ** args;
+    uint64_t size;
+    uint64_t capacity;
 };
 
+// Initialises a command on the heap
 static inline command_t * command_init(const char *arg);
+
+// Deinitialises a command, frees the memory 
+static inline void command_deinit(command_t * cmd);
+
+// Adds 1 argument to the command
 static inline void command_append(command_t *cmd, const char *arg);
+
+// Adds n arguments to the command, end the var arg with NULL
 static inline void command_append_n(command_t *cmd, const char *arg0, ...);
+
+// Executes the command in a separate process
 static inline void command_execute(command_t *cmd);
+
+// Equivalent to command_append(cmd, path)
+static inline void command_add_source_file(command_t * cmd, const char * path);
+
+// Equivalent to command_append_n(cmd, "-I", path, NULL)
+static inline void command_add_include_dir(command_t * cmd, const char * path);
+
+// Equivalent to command_append_n(cmd, "-o", name, NULL)
+static inline void command_set_output_file(command_t * cmd, const char * name);
+
+// Equivalent to command_append_n(cmd, "-Wall", "-Werror", NULL);
+static inline void command_enable_all_errors(command_t * cmd);
+
+// Equivalent to command_append_n(cmd, "-l", name, NULL);
+static inline void command_add_dynamic_library(command_t * cmd, const char * name);
 
 struct option_t {
     char * flag;
@@ -156,32 +183,31 @@ static inline int has_argument_at_intex(char * arg, int i) {
 
 static inline command_t * command_init(const char * arg) {
     debug_print("command_init: arg = %s", arg);
-    command_t * cmd = (command_t *)malloc(sizeof(command_t));
-
-    {
-        if(!cmd) {
-            _panic("command_init: malloc failed");
-        }
-    }
-
-    cmd->arg = strdup(arg);
-
-    {
-        if(!cmd->arg) {
-            _panic("command_init: strdup failed");
-        }
-    }
-
-    cmd->next = 0;
+    command_t * cmd = (command_t *)_safe_alloc(sizeof(command_t), "command_init: failed to allocate");
+    cmd->args = NULL;
+    cmd->size = 0;
+    cmd->capacity = 0;
+    command_append(cmd, arg);
     return cmd;
 }
 
-static inline void command_append(command_t *cmd, const char * arg) {
-    while(cmd->next) {
-        cmd = cmd->next;
-    }
+static inline void command_deinit(command_t * cmd) {
+    if(cmd->args) free(cmd->args);
+    free(cmd);
+}
 
-    cmd->next = command_init(arg);
+static inline void command_append(command_t *cmd, const char * arg) {
+    if(cmd->capacity == 0) {
+        cmd->capacity = 1;
+        cmd->args = (char **)_safe_alloc(sizeof(char *) * cmd->capacity, "command_append: failed to initially allocate");
+    } else if(cmd->size == cmd->capacity) {
+        cmd->capacity *= 2;
+        char ** t = (char **)_safe_alloc(sizeof(char *) * cmd->capacity, "command_append: failed to double array size");
+        memcpy(t, cmd->args, cmd->size * sizeof(char *));
+        free(cmd->args);
+        cmd->args = t;
+    }
+    cmd->args[cmd->size++] = strdup(arg);
 }
 
 static inline void command_append_n(command_t *cmd, const char * arg0, ...) {
@@ -200,49 +226,39 @@ static inline void command_append_n(command_t *cmd, const char * arg0, ...) {
     va_end(ap);
 }
 
+static inline void command_add_source_file(command_t * cmd, const char * path) {
+    command_append(cmd, path);
+}
+
+static inline void command_add_include_dir(command_t * cmd, const char * path) {
+    command_append_n(cmd, "-I", path, NULL);
+}
+
+static inline void command_set_output_file(command_t * cmd, const char * name) {
+    command_append_n(cmd, "-o", name, NULL);
+}
+
+static inline void command_enable_all_errors(command_t * cmd) {
+    command_append_n(cmd, "-Wall", "-Werror", NULL);
+}
+
+static inline void command_add_dynamic_library(command_t * cmd, const char * name) {
+    command_append_n(cmd, "-l", name, NULL);
+}
+
 static inline char ** _command_assemble(const command_t *cmd) {
-    int count = 0;
-    command_t * t = (command_t *)cmd;
-
-    while(t) {
-        count += 1;
-        t = t->next;
-    }
-
-    count += 1; // Add the null sentinal
-
-    char ** argv = (char **)malloc(count * sizeof(char *));
-
-    {
-        if(!argv) {
-            _panic("_command_assemble: malloc failed");
-        }
-    }
-
-    argv[count - 1] = NULL;
-
-    t = (command_t *)cmd;
-    char ** argv_t = argv;
-    while(t) {
-        *argv_t = strdup(t->arg);
-
-        {
-            if(!*argv_t) {
-                _panic("_command_assemble: strdup failed");
-            }
-        }
-
-        t = t->next;
-        argv_t += 1;
-    }
-
-    return argv;
+    char ** assembled = _safe_alloc(sizeof(char *) * cmd->size + 1, "_command_assemble: failed to allocate assembled");
+    memcpy(assembled, cmd->args, sizeof(char *) * cmd->size);
+    assembled[cmd->size + 1] = NULL;
+    return assembled;
 }
 
 
 
 // ---------- LINUX SPECIFIC ----------
 #ifdef __linux__
+
+#define CC "/usr/sbin/cc"
 
 #include <unistd.h>
 #include <sys/wait.h>
@@ -261,8 +277,13 @@ static inline void command_execute(command_t *cmd) {
             if(result == -1) { _panic("command_execute: execve failed"); }
         }
     } else {
-        printf("Parent\n");
         waitpid(p, NULL, 0);
+        char ** t = assembled;
+        while(*t) {
+            free(*t);
+            t++;
+        }
+        free(assembled);
     }
 
 }
