@@ -81,7 +81,6 @@ static inline int has_argument_at_intex(char * arg, int i);
 
 static inline time_t _last_modified(char * file);
 
-#define CB_IMPLEMENTATION
 #ifdef CB_IMPLEMENTATION
 
 static inline void _panic(const char * fmt, ...) {
@@ -317,7 +316,6 @@ void cb_rebuild_on_change(char * source, char ** argv) {
         command_t * cmd = command_init((char *)CC);
         command_add_source_file(cmd, source);
         command_set_output_file(cmd, *argv);
-        command_append_n(cmd, "-D", "DEBUG", "-g", NULL);
         command_execute(cmd);
         command_deinit(cmd);
 
