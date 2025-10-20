@@ -7,3 +7,13 @@ int main(int argc, char ** argv) {
     return 0;
 }
 EOF
+
+echo "Compiling"
+gcc -o cb cb.c -DDEBUG
+echo "Running first time"
+./cb
+sleep 1
+echo "Changing cb.c"
+touch cb.c
+echo "Running second time"
+./cb

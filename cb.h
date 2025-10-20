@@ -81,6 +81,7 @@ static inline int has_argument_at_intex(char * arg, int i);
 
 static inline time_t _last_modified(char * file);
 
+#define CB_IMPLEMENTATION
 #ifdef CB_IMPLEMENTATION
 
 static inline void _panic(const char * fmt, ...) {
@@ -267,6 +268,7 @@ static inline char ** _command_assemble(const command_t *cmd) {
 #include <unistd.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
+#include <limits.h>
 
 extern char ** environ;
 
@@ -321,7 +323,9 @@ void cb_rebuild_on_change(char * source, char ** argv) {
 
         // Assemble the full path
         debug_print("running new instance\n");
-        char * cwd = getcwd(NULL, 0);
+        char cwd[PATH_MAX] = { 0 };
+        if(!getcwd(cwd, sizeof(cwd))) _panic("cb_rebuild_on_change: failed to call getcwd\n");
+        debug_print("cwd=%s\n", cwd);
         int cwd_len = strlen(cwd);
 
         // If program starts with . do not include the .
@@ -330,16 +334,17 @@ void cb_rebuild_on_change(char * source, char ** argv) {
         if(**argv == '.') { total_len = cwd_len + strlen(*argv); has_dot = 1; }
         else total_len = cwd_len + strlen(*argv) + 1;
 
-        char * abs_path = (char *)_safe_alloc(total_len, "cb_rebuild_on_change: failed to allocate abs_path");
-        strcpy(abs_path, cwd);
-        free(cwd);
+        debug_print("total_len=%d\n", total_len);
 
-        if(has_dot) strcpy(abs_path + cwd_len, (*argv) + 1);
-        else strcpy(abs_path + cwd_len, *argv);
+        //char * abs_path = (char *)_safe_alloc(total_len, "cb_rebuild_on_change: failed to allocate abs_path");
+        //strcpy(abs_path, cwd);
 
-        abs_path[total_len - 1] = 0;
-        debug_print("abs_path=%s\n", abs_path);
-        execve(abs_path, argv, environ);
+        if(has_dot) strcpy(cwd + cwd_len, (*argv) + 1);
+        else strcpy(cwd + cwd_len, *argv);
+
+        cwd[total_len - 1] = 0;
+        debug_print("abs_path=%s\n", cwd);
+        execve(cwd, argv, environ);
     }
 }
 
