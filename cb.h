@@ -93,6 +93,7 @@ static inline void _panic(const char * fmt, ...) {
 }
 
 static inline void * _safe_alloc(size_t size, const char * error_msg) {
+    debug_print("starting _safe_alloc\n");
     void * a = malloc(size);
     if(!a) {
         _panic(error_msg);
@@ -136,6 +137,53 @@ static inline void _add_value(option_t * o, char * value) {
     }
     o->values[o->option_count] = value;
     o->option_count++;
+}
+
+#include <unistd.h>
+#include <limits.h>
+
+char * _assemble_full_path(char * arg) {
+    // No matter what, the first argument is allocated on the heap, this makes deinit cleaner
+    size_t arg_len = strlen(arg);
+
+    char * result = 0;
+
+    // If argument is absolute path, just copy it over
+    if(arg[0] == '/') {
+        debug_print("absolute path\n");
+        size_t len = strlen(arg);
+        debug_print("strlen(arg)=%d\n", len);
+        result = (char *)_safe_alloc((len + 1) * sizeof(char), "_assemble_full_path: failed to allocate full arg");
+        result[len] = 0;
+        strcpy(result, arg);
+    }
+
+    // Argument is not an absolute path
+    // Get the current working directory
+    // If argument starts with a ., prepend the current working directory to it
+    else if(arg[0] == '.') {
+        debug_print("relative path\n");
+        debug_print("arg=%s\n", arg);
+        char cwd[PATH_MAX] = { 0 };
+        if(!getcwd(cwd, sizeof(cwd))) _panic("_assemble_full_path: failed to call getcwd\n");
+        debug_print("cwd=%s\n", cwd);
+        size_t cwd_len = strlen(cwd);
+        size_t total_len = cwd_len + 1 + arg_len + 1;
+        debug_print("total_len=%d\n", total_len);
+        result = (char *)_safe_alloc(total_len * sizeof(char), "_assemble_full_path: failed to allocate total_len bytes");
+        debug_print("past _safe_alloc\n");
+        strcpy(result, cwd);
+        result[cwd_len] = '/';
+        strcpy(result + cwd_len + 1, arg);
+        result[total_len - 1] = 0;
+    }
+
+    // Argument is a path variable
+    //else {
+    //    _panic("path variables are not supported yet!");
+    //}
+
+    return result;
 }
 
 static inline void parse_arguments(int argc, char ** argv) {
@@ -192,13 +240,28 @@ static inline command_t * command_init(char * arg) {
     cmd->args = NULL;
     cmd->size = 0;
     cmd->capacity = 0;
+    // Assemble full path
+    char * full_path = _assemble_full_path(arg);
+    debug_print("full_path=%s\n", full_path);
+    debug_print("address(full_path)=%p, address(arg)=%p\n", full_path, arg);
+
     command_append(cmd, arg);
     return cmd;
 }
 
 static inline void command_deinit(command_t * cmd) {
-    if(cmd->args) free(cmd->args);
+    debug_print("starting deinit\n");
+    
+    if(cmd->args) {
+        // FIX: this gives error "free(): invalid pointer", but args[0] is allocated using malloc
+        //free(cmd->args[0]);
+        //debug_print("free(cmd->args[0]) OK\n");
+        free(cmd->args);
+        debug_print("free(cmd->args) OK\n");
+    }
     free(cmd);
+    debug_print("free(cmd) OK\n");
+    debug_print("done deinit\n");
 }
 
 static inline void command_append(command_t *cmd, char * arg) {
@@ -252,9 +315,9 @@ static inline void command_add_dynamic_library(command_t * cmd, char * name) {
 }
 
 static inline char ** _command_assemble(const command_t *cmd) {
-    char ** assembled = (char **)_safe_alloc(sizeof(char *) * cmd->size + 1, "_command_assemble: failed to allocate assembled");
+    char ** assembled = (char **)_safe_alloc(sizeof(char *) * (cmd->size + 1), "_command_assemble: failed to allocate assembled"); // Here was a bug as well, I forgot the ( ... )
     memcpy(assembled, cmd->args, sizeof(char *) * cmd->size);
-    assembled[cmd->size + 1] = NULL;
+    assembled[cmd->size] = NULL; // This line had an out of bounds write to cmd->size + 1 :skull:
     return assembled;
 }
 
@@ -306,6 +369,8 @@ static inline long _last_modified(char *file) {
 #endif
 // ---------- END OF LINUX SPECIFIC ----------
 
+#include <assert.h>
+
 void cb_rebuild_on_change(char * source, char ** argv) {
     long source_mtime = _last_modified(source);
     long exec_mtime = _last_modified(*argv);
@@ -320,7 +385,12 @@ void cb_rebuild_on_change(char * source, char ** argv) {
         command_set_output_file(cmd, *argv);
         command_execute(cmd);
         command_deinit(cmd);
+        debug_print("built new version\n");
 
+        assert(exec_mtime < _last_modified(*argv) && "File is not changed!");
+        // New version is built
+
+        /*
         // Assemble the full path
         debug_print("running new instance\n");
         char cwd[PATH_MAX] = { 0 };
@@ -344,7 +414,11 @@ void cb_rebuild_on_change(char * source, char ** argv) {
 
         cwd[total_len - 1] = 0;
         debug_print("abs_path=%s\n", cwd);
-        execve(cwd, argv, environ);
+        */
+        //execve(cwd, argv, environ);
+        char * full_path = _assemble_full_path(*argv);
+        debug_print("full_path=%s\n", full_path);
+        execve(full_path, argv, environ);
     }
 }
 
