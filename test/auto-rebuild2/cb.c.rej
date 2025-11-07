@@ -1,0 +1,11 @@
+--- cb2.c	2025-11-07 17:03:22.232652423 +0100
++++ cb.c	2025-11-07 17:03:03.316924494 +0100
+@@ -3,7 +3,7 @@
+ 
+ #include <stdio.h>
+ 
+-const char * msg = "version 2";
++const char * msg = "version 1";
+ int main(int argc, char ** argv) {
+     cb_rebuild_on_change(__FILE__, argv);
+     printf("%s\n", msg);
