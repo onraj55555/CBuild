@@ -9,11 +9,13 @@ int main(int argc, char ** argv) {
 EOF
 
 echo "Compiling"
-gcc -o cb cb.c -DDEBUG
+gcc -o cb cb.c #-DDEBUG
 echo "Running first time"
 ./cb
+echo Exit value: $?
 sleep 1
 echo "Changing cb.c"
 touch cb.c
 echo "Running second time"
 ./cb
+echo Exit value: $?
