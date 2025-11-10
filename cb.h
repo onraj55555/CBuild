@@ -332,6 +332,7 @@ static inline char ** _command_assemble(const command_t *cmd) {
 #include <sys/wait.h>
 #include <sys/stat.h>
 #include <limits.h>
+#include <errno.h>
 
 extern char ** environ;
 
@@ -347,7 +348,7 @@ static inline void command_execute(command_t *cmd) {
         debug_print("child\n");
         int result = execve(assembled[0], assembled, environ);
         {
-            if(result == -1) { _panic("command_execute: execve failed"); }
+            if(result == -1) { _panic("command_execute: execve failed with error '%s'", strerror(errno)); }
         }
     } else {
         debug_print("parent\n");
